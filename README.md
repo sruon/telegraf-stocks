@@ -43,4 +43,3 @@ stocks,stock_exchange="NMS",days_range="115.75 - 117.38",last_trade_with_time="4
 
 # Yahoo API throttling
 2,000 requests/hr per IP when *unauthenticated*
-20,000 requests/hr per IP when *authenticated* with OAuth (not implemented)
