@@ -1,0 +1,88 @@
+#!/usr/bin/env python
+import requests
+import json
+import re
+import argparse
+from requests.exceptions import ConnectTimeout, ConnectionError
+
+# Source: https://djangosnippets.org/snippets/585/
+camelcase_to_underscore = lambda str: re.sub('(((?<=[a-z])[A-Z])|([A-Z](?![A-Z]|$)))', '_\\1', str).lower().strip('_')
+
+class StockNotFound(Exception):
+    pass
+
+def process(ticker=None, measurement=None):
+    result = None
+    payload = {
+        'format': 'json',
+        'q': 'select * from yahoo.finance.quotes where symbol in ("%s")' % ticker,
+        'env': 'store://datatables.org/alltableswithkeys',
+        'callback': ''
+    }
+
+    try:
+        r = requests.get('https://query.yahooapis.com/v1/public/yql', params=payload, timeout=10)
+    except ConnectTimeout:
+        raise Exception('Unable to contact Yahoo API.')
+    except ConnectionError:
+        raise Exception('Unable to contact Yahoo API.')
+    try:
+        result = r.json()
+    except ValueError:
+        raise Exception('Unable to read JSON.')
+    payload = result.get('query', {}).get('results', {}).get('quote', {})
+    if not payload:
+        raise Exception('Malformed output.')
+    tags, values = convert(payload=payload)
+    return dump_influxdb_line(tags=tags, values=values, measurement=measurement)
+
+def convert(payload=None):
+    tags = {}
+    values = {}
+
+    for k, v in payload.iteritems():
+        converted_key = camelcase_to_underscore(k)
+        converted_value = None
+
+        try:
+            # Get rid of % sign in percentage values
+            if 'percent' in converted_key:
+                if isinstance(v, basestring):
+                    v = v.rstrip('%')
+            # Convert capitalizations to proper values
+            if converted_key == 'ebitda' or converted_key == 'market_capitalization':
+                units = {'B': 10 ** 9, 'M': 10 ** 6}
+                if isinstance(v, basestring):
+                    converted_value = float(v[:-1]) * units[v[-1]]
+            else:
+                converted_value = float(v)
+        except ValueError: # All string values become tags
+            tags[converted_key] = v
+        except TypeError: # All null values are ignored
+            pass
+        if converted_value:
+            values[converted_key] = converted_value
+    if not values:
+        raise StockNotFound("Symbol %s not found." % tags['symbol'])
+    return (tags, values)
+
+def dump_influxdb_line(tags=None, values=None, measurement=None):
+    tags_line = ','.join("%s=%s" % (k, influxdb_escaped(v)) for (k,v) in tags.iteritems())
+    values_line = ','.join("%s=%f" % (k, v) for (k,v) in values.iteritems())
+    final_line = measurement + ',' + tags_line + ' ' + values_line
+    return final_line
+
+def influxdb_escaped(value):
+    return value.replace(' ', '\ ').replace('"', '\"').replace(',', '\,').replace('=', '\=')
+    
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Retrieves stock information from Yahoo Finance and formats them in InfluxDB line format.")
+    parser.add_argument("--ticker", required=True, help="Ticker symbol to check on Yahoo Finance.")
+    parser.add_argument("--measurement", default="stocks", help="Measurement name for InfluxDB.")
+    args = parser.parse_args()
+    try:
+        print process(ticker=args.ticker, measurement=args.measurement)
+    except StockNotFound as e:
+        print e
+    except Exception as e:
+        print e
