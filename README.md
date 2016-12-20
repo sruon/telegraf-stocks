@@ -1,6 +1,8 @@
 # Telegraf Stocks
 Retrieve stock informations from Yahoo Finance in a format ready to consume for Telegraf - InfluxDB.
 
+![alt text](https://github.com/sruon/telegraf-stocks/raw/master/telegraf_stocks.png)
+
 # Installing
 ```
 pip install -r requirements.txt
