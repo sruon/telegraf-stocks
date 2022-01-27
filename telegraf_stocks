@@ -1,43 +1,16 @@
 #!/usr/bin/env python
-import requests
-import json
 import re
 import argparse
-from requests.exceptions import ConnectTimeout, ConnectionError
+import yfinance
 
 # Source: https://djangosnippets.org/snippets/585/
 camelcase_to_underscore = lambda str: re.sub(
     '(((?<=[a-z])[A-Z])|([A-Z](?![A-Z]|$)))', '_\\1', str).lower().strip('_')
 
 
-class StockNotFound(Exception):
-    pass
-
-
 def process(ticker=None, measurement=None):
-    result = None
-    payload = {
-        'format': 'json',
-        'q': 'select * from yahoo.finance.quotes where symbol in ("%s")' % ticker,
-        'env': 'store://datatables.org/alltableswithkeys',
-        'callback': ''
-    }
-
-    try:
-        r = requests.get(
-            'https://query.yahooapis.com/v1/public/yql', params=payload, timeout=10)
-    except ConnectTimeout:
-        raise Exception('Unable to contact Yahoo API.')
-    except ConnectionError:
-        raise Exception('Unable to contact Yahoo API.')
-    try:
-        result = r.json()
-    except ValueError:
-        raise Exception('Unable to read JSON.')
-    payload = result.get('query', {}).get('results', {}).get('quote', {})
-    if not payload:
-        raise Exception('Malformed output.')
-    tags, values = convert(payload=payload)
+    payload = yfinance.Ticker(ticker)
+    tags, values = convert(payload=payload.info)
     return dump_influxdb_line(tags=tags, values=values, measurement=measurement)
 
 
@@ -93,7 +66,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     try:
         print process(ticker=args.ticker, measurement=args.measurement)
-    except StockNotFound as e:
-        print e
     except Exception as e:
         print e
