@@ -40,8 +40,6 @@ def convert(payload=None):
             pass
         if converted_value:
             values[converted_key] = converted_value
-    if not values:
-        raise StockNotFound("Symbol %s not found." % tags['symbol'])
     return (tags, values)
 
 
