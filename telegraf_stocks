@@ -2,69 +2,72 @@
 import re
 import argparse
 import yfinance
+from json import dumps
 
 # Source: https://djangosnippets.org/snippets/585/
-camelcase_to_underscore = lambda str: re.sub(
-    '(((?<=[a-z])[A-Z])|([A-Z](?![A-Z]|$)))', '_\\1', str).lower().strip('_')
+camelcase_to_underscore = (
+    lambda str: re.sub("(((?<=[a-z])[A-Z])|([A-Z](?![A-Z]|$)))", "_\\1", str)
+    .lower()
+    .strip("_")
+)
 
 
 def process(ticker=None, measurement=None):
     payload = yfinance.Ticker(ticker)
     tags, values = convert(payload=payload.info)
-    return dump_influxdb_line(tags=tags, values=values, measurement=measurement)
+    return dump_influxdb_line(
+        tags=tags,
+        values=values,
+        measurement=measurement)
 
 
 def convert(payload=None):
     tags = {}
     values = {}
 
-    for k, v in payload.iteritems():
+    for k in payload:
+        v = payload[k]
         converted_key = camelcase_to_underscore(k)
         converted_value = None
 
         try:
-            # Get rid of % sign in percentage values
-            if 'percent' in converted_key:
-                if isinstance(v, basestring):
-                    v = v.rstrip('%')
-            # Convert capitalizations to proper values
-            if converted_key == 'ebitda' or converted_key == 'market_capitalization':
-                units = {'B': 10 ** 9, 'M': 10 ** 6}
-                if isinstance(v, basestring):
-                    converted_value = float(v[:-1]) * units[v[-1]]
-            else:
-                converted_value = float(v)
+            converted_value = float(v)
         except ValueError:  # All string values become tags
             tags[converted_key] = v
         except TypeError:  # All null values are ignored
             pass
         if converted_value:
             values[converted_key] = converted_value
-    if not values:
-        raise StockNotFound("Symbol %s not found." % tags['symbol'])
     return (tags, values)
 
 
 def dump_influxdb_line(tags=None, values=None, measurement=None):
-    tags_line = ','.join("%s=%s" % (k, influxdb_escaped(v))
-                         for (k, v) in tags.iteritems())
-    values_line = ','.join("%s=%f" % (k, v) for (k, v) in values.iteritems())
-    final_line = measurement + ',' + tags_line + ' ' + values_line
+    tags_line = ",".join(
+        "%s=%s" % (k, influxdb_escaped(tags[k])) for k in tags
+    )
+    values_line = ",".join("%s=%f" % (k, values[k]) for k in values)
+    final_line = measurement + "," + tags_line + " " + values_line
     return final_line
 
 
 def influxdb_escaped(value):
-    return value.replace(' ', '\ ').replace('"', '\"').replace(',', '\,').replace('=', '\=')
+    return (
+        value.replace(" ", "\\ ").replace('"', '"').replace(",", "\\,").replace("=", "\\=")
+    )
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Retrieves stock information from Yahoo Finance and formats them in InfluxDB line format.")
-    parser.add_argument("--ticker", required=True,
-                        help="Ticker symbol to check on Yahoo Finance.")
-    parser.add_argument("--measurement", default="stocks",
-                        help="Measurement name for InfluxDB.")
+        description="Retrieves stock information from Yahoo Finance and formats them in InfluxDB line format."
+    )
+    parser.add_argument(
+        "--ticker", required=True, help="Ticker symbol to check on Yahoo Finance."
+    )
+    parser.add_argument(
+        "--measurement", default="stocks", help="Measurement name for InfluxDB."
+    )
     args = parser.parse_args()
     try:
-        print process(ticker=args.ticker, measurement=args.measurement)
+        print(process(ticker=args.ticker, measurement=args.measurement))
     except Exception as e:
-        print e
+        print(e)
